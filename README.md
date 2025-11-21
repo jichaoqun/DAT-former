@@ -5,12 +5,12 @@ Pytorch Implementation of "Enhancing Handwritten Mathematical Expression Recogni
   <tr>
     <!-- 左图 -->
     <td>
-      <img src="image.png" width="200">
+      <img src="image.png" width="500">
     </td>
     <!-- 右侧两张上下排列 -->
     <td>
-      <img src="image-1.png" width="200"><br><br>
-      <img src="image-2.png" width="200">
+      <img src="image-1.png" width="500"><br><br>
+      <img src="image-2.png" width="500">
     </td>
   </tr>
 </table>
