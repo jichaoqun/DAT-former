@@ -1,19 +1,7 @@
 ## DAT-former
 Pytorch Implementation of "Enhancing Handwritten Mathematical Expression Recognition with Hybrid Encoding and Disentangled Attention Mechanisms"
+Submitted to The Visual Computer, 2025.11
 
-<table align="center">
-  <tr>
-    <!-- 左图 -->
-    <td>
-      <img src="image.png" width="500">
-    </td>
-    <!-- 右侧两张上下排列 -->
-    <td>
-      <img src="image-1.png" width="500"><br><br>
-      <img src="image-2.png" width="500">
-    </td>
-  </tr>
-</table>
 
 <table align="center">
   <tr>
