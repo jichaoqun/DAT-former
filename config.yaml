@@ -5,7 +5,7 @@ trainer:
     init_args:
       save_dir: ./       # <-- 这个是必须的
       name: lightning_logs      # 日志文件夹名称（可选）
-      version: null             # 版本号自动生成
+      version: only_HE             # 版本号自动生成
   # checkpoint_callback: true
   callbacks:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
@@ -18,14 +18,14 @@ trainer:
         mode: max
         filename: '{epoch}-{step}-{val_ExpRate:.4f}'
   accelerator: gpu
-  devices: [0]
+  devices: [0, 1]
   # strategy: ddp
   strategy: ddp_find_unused_parameters_true
 
   gradient_clip_val: 1.0  # 梯度裁剪阈值
   gradient_clip_algorithm: 'norm'  # 使用 L2 范数裁剪
 
-  check_val_every_n_epoch: 2
+  check_val_every_n_epoch: 5
   max_epochs: 301
 model:
   encoder_type: mit0  # DenseNet, 
@@ -60,7 +60,9 @@ model:
 data:
   zipfile_path: ./data.zip
   test_year: '2014'
-  train_batch_size: 8
-  eval_batch_size: 2
-  num_workers: 0
+  train_batch_size: 32
+  eval_batch_size: 16
+  num_workers: 4
   scale_aug: true
+  val_ratio: 0.1
+  split_seed: 7
