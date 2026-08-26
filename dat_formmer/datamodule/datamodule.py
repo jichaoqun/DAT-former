@@ -1,4 +1,5 @@
 import os
+import random
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from zipfile import ZipFile
@@ -6,7 +7,7 @@ from zipfile import ZipFile
 import numpy as np
 import lightning as L
 import torch
-from dat_formmer.datamodule.dataset import CROHMEDataset
+from comer.datamodule.dataset import CROHMEDataset
 from PIL import Image
 from torch import FloatTensor, LongTensor
 from torch.utils.data.dataloader import DataLoader
@@ -15,7 +16,7 @@ from .vocab import vocab
 
 Data = List[Tuple[str, Image.Image, List[str]]]
 
-MAX_SIZE = 32e4  # change here accroading to your GPU memory
+MAX_SIZE = 128e4  # change here accroading to your GPU memory
 
 # load data
 def data_iterator(
@@ -171,15 +172,59 @@ def build_dataset(archive, folder: str, batch_size: int):
     return data_iterator(data, batch_size)
 
 
+def build_train_val_datasets(
+    archive: ZipFile,
+    train_batch_size: int,
+    eval_batch_size: int,
+    val_ratio: float,
+    split_seed: int,
+):
+    """Split the official training set before constructing image-size batches.
+
+    The split is deterministic for a given seed. Official CROHME test sets are
+    not read here and therefore cannot affect training or model selection.
+    """
+    if not 0.0 < val_ratio < 1.0:
+        raise ValueError(f"val_ratio must be between 0 and 1, got {val_ratio}")
+
+    data = extract_data(archive, "train")
+    indices = list(range(len(data)))
+    random.Random(split_seed).shuffle(indices)
+
+    val_size = round(len(data) * val_ratio)
+    if val_size == 0 or val_size == len(data):
+        raise ValueError(
+            f"val_ratio={val_ratio} produces an invalid split for {len(data)} samples"
+        )
+
+    val_indices = set(indices[:val_size])
+    train_data = [sample for index, sample in enumerate(data) if index not in val_indices]
+    val_data = [sample for index, sample in enumerate(data) if index in val_indices]
+
+    print(
+        "Split official training data: "
+        f"train={len(train_data)}, val={len(val_data)}, "
+        f"val_ratio={val_ratio}, split_seed={split_seed}"
+    )
+
+    return (
+        data_iterator(train_data, train_batch_size),
+        data_iterator(val_data, eval_batch_size),
+    )
+
+
 class CROHMEDatamodule(L.LightningDataModule):
     def __init__(
         self,
-        zipfile_path: str = f"{os.path.dirname(os.path.realpath(__file__))}/../../data.zip",
+        # zipfile_path: str = f"{os.path.dirname(os.path.realpath(__file__))}/../../data.zip",
+        zipfile_path: str = f"{os.path.dirname(os.path.realpath(__file__))}/data.zip",
         test_year: str = "2014",
         train_batch_size: int = 8,
         eval_batch_size: int = 4,
         num_workers: int = 5,
         scale_aug: bool = False,
+        val_ratio: float = 0.1,
+        split_seed: int = 7,
     ) -> None:
         super().__init__()
         assert isinstance(test_year, str)
@@ -189,27 +234,36 @@ class CROHMEDatamodule(L.LightningDataModule):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         self.scale_aug = scale_aug
+        self.val_ratio = val_ratio
+        self.split_seed = split_seed
 
         print(f"Load data from: {self.zipfile_path}")
 
     def setup(self, stage: Optional[str] = None) -> None:
         with ZipFile(self.zipfile_path) as archive:
             if stage == "fit" or stage is None:
+                train_batches, val_batches = build_train_val_datasets(
+                    archive,
+                    self.train_batch_size,
+                    self.eval_batch_size,
+                    self.val_ratio,
+                    self.split_seed,
+                )
                 self.train_dataset = CROHMEDataset(
-                    build_dataset(archive, "train", self.train_batch_size),
+                    train_batches,
                     True,
                     self.scale_aug,
                 )
                 self.val_dataset = CROHMEDataset(
-                    build_dataset(archive, self.test_year, self.eval_batch_size),
+                    val_batches,
                     False,
-                    self.scale_aug,
+                    False,
                 )
             if stage == "test" or stage is None:
                 self.test_dataset = CROHMEDataset(
                     build_dataset(archive, self.test_year, self.eval_batch_size),
                     False,
-                    self.scale_aug,
+                    False,
                 )
 
     def train_dataloader(self):
