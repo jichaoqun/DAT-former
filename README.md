@@ -1,6 +1,7 @@
 ## DAT-former
-Pytorch Implementation of "Enhancing Handwritten Mathematical Expression Recognition with Hybrid Encoding and Disentangled Attention Mechanisms"
-Submitted to The Visual Computer, 2025.11
+This repository contains the source code, configuration files, and evaluation scripts for the revised DAT-Former experiments on handwritten mathematical expression recognition (HMER).
+
+The package is intended to reproduce the results reported in the submitted manuscript, including the main comparison tables, ablation studies, and CROHME evaluation results. The exact release tag, checkpoints, logs, and supplementary artifacts used for the manuscript should also be archived on Zenodo.
 
 
 <table align="center">
@@ -39,78 +40,221 @@ Handwritten Mathematical Expression Recognition (HMER) is a crucial technology f
 - `lgeval/` — LgEval 评估工具集（用于与标准评测脚本配合计算指标）。
 - `lightning_logs/` — 训练时的日志与 checkpoint（由 PyTorch Lightning 产生）。
 
-## 快速开始（快速复现）
+## Environment
 
-本项目运行平台为Ubuntu20.04
+The revised codebase targets the following environment:
 
-1) 创建并激活虚拟环境（可选但推荐）
+```text
+Python: 3.9
+PyTorch: 2.8.0
+TorchVision: 0.23.0
+Lightning: 2.5.2
+CUDA: compatible with the installed PyTorch build
+GPU used in our experiments: NVIDIA RTX 5880 Ada Generation / equivalent CUDA GPU
+```
 
-```powershell
+Install the package and dependencies:
+
+```bash
 conda create -n datformer python=3.9
-```
+conda activate datformer
 
-2) 安装依赖
-
-```powershell
+pip install torch==2.8.0 torchvision==0.23.0
+pip install lightning==2.5.2
+pip install "jsonargparse[signatures]==4.49.0"
 pip install -r requirements.txt
+pip install -e .
 ```
 
-3) 准备数据（示例）
+For official CROHME evaluation, Perl and the CROHME evaluation tools are required:
 
-仓库附带 `data.zip`（或请自行放置 CROHME 数据）。默认使用 CROHME 2014 数据集。如果你使用的是 2016/2019 或自定义数据集，请在 `config.yaml` 中修改路径与数据选项。
-
-（假设解压后数据路径为 `data/crohme2014/`，可在 `config.yaml` 中将 dataset.path 指向该路径。）
-
-4) 启动训练
-
-```powershell
-python train.py --config config.yaml
+```bash
+perl --version
 ```
 
-训练过程会在 `lightning_logs/` 下保存日志与 checkpoint（取决于 `config.yaml` 中的 logger/checkpoint 配置）。
+If TensorBoard raises a NumPy compatibility error, use a TensorBoard/NumPy combination compatible with the installed PyTorch environment.
 
-5) 评估
+## Data Preparation
 
-仓库提供了评估脚本 `eval_all.sh`（UNIX shell）和 `lgeval/` 工具。Windows 用户可使用 WSL 或在 PowerShell 下运行相应的脚本。
+The expected data archive is:
 
-```powershell
-sh eval_all.sh
+```text
+data.zip
+```
+
+After extraction, the directory should contain the official CROHME training data and the CROHME 2014/2016/2019 test sets:
+
+```text
+data/
+├── train/
+├── 2014/
+├── 2016/
+└── 2019/
+```
+
+If the dataset cannot be redistributed, download it from the official CROHME source and place it in the format above. Before release, provide checksums for the local archive used in the manuscript, for example:
+
+```bash
+sha256sum data.zip
+```
+
+## Experimental Protocol
+
+To avoid test-set reuse, model selection and hyperparameter tuning are performed only on the official CROHME training set.
+
+The default revised protocol is:
+
+```text
+1. Split the official CROHME training set into 90% training and 10% validation data.
+2. Use the validation split for checkpoint selection and hyperparameter tuning.
+3. Keep CROHME 2014/2016/2019 only as final test sets.
+4. Report the final test results using the official CROHME evaluation scripts.
+```
+
+The split is controlled by:
+
+```yaml
+data:
+  val_ratio: 0.1
+  split_seed: 7
+```
+
+All ablation variants should use the same split, seed, augmentation, training schedule, checkpoint selection metric, and evaluation script.
+
+## Training
+
+Run DAT-Former with:
+
+```bash
+python train.py fit --config config.yaml
+```
+
+The current configuration uses LightningCLI. Therefore, `fit`, `validate`, `test`, or `predict` must be provided as the subcommand.
+
+Important configuration entries:
+
+```yaml
+seed_everything: 7
+
+trainer:
+  accelerator: gpu
+  devices: [0, 1]
+  strategy: ddp_find_unused_parameters_true
+  max_epochs: 301
+  check_val_every_n_epoch: 5
+
+model:
+  learning_rate: 0.08
+  dropout: 0.3
+  beam_size: 10
+  max_len: 100
+
+data:
+  zipfile_path: ./data.zip
+  train_batch_size: 32
+  eval_batch_size: 16
+  scale_aug: true
+  val_ratio: 0.1
+  split_seed: 7
+```
+
+Before training, make sure that `CUDA_VISIBLE_DEVICES` and `trainer.devices` refer to the same visible GPUs.
+
+For example:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python train.py fit --config config.yaml
+```
+
+## Evaluation
+
+Evaluate one trained version on a selected CROHME test set:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/test/eval.sh <version> 2014 4
+CUDA_VISIBLE_DEVICES=0 bash scripts/test/eval.sh <version> 2016 4
+CUDA_VISIBLE_DEVICES=0 bash scripts/test/eval.sh <version> 2019 4
+```
+
+For example, if the checkpoint is stored under `lightning_logs/version_best/`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/test/eval.sh best 2014 4
+```
+
+Evaluate all CROHME test sets:
+
+```bash
+bash eval_all.sh <version>
+```
+
+The result files are written to:
+
+```text
+lightning_logs/version_<version>/2014.txt
+lightning_logs/version_<version>/2016.txt
+lightning_logs/version_<version>/2019.txt
 ```
 
 
-## 数据说明
+## Random Seeds and Hardware Details
 
-- 支持的数据集：CROHME（2014/2016/2019）、HME100K。仓库默认配置使用 CROHME2014 数据集。
-- 数据格式：代码支持 CROHME 数据集为 zip 格式，解压后为标准的 CROHME 数据格式。
-- 数据路径：在 `config.yaml` 中指定 `dataset.path`，默认为 `data/crohme2014/`。
-- 数据预处理：仓库使用 `dat_formmer/datamodule/datamodule.py` 来加载和解码数据。
-- 数据下载：仓库附带 `data.zip`为CROHME数据集，HME100K 数据集请自行下载，[HME100K数据集链接](https://github.com/Phymond/HME100K)
+The default seed is:
 
+```yaml
+seed_everything: 7
+```
 
-注意：如果你的数据不是严格的 CROHME 格式，需要对数据进行转换，或者修改 `dat_formmer/datamodule/datamodule.py` 中的数据读取逻辑以匹配你的标注结构。
+When reporting ablation studies, use the same seed and data split across all variants. If multiple seeds are reported, include the seed list and report mean and standard deviation.
 
+Record the following details for each released run:
 
-## 配置说明
+```text
+GPU model and number of GPUs
+CUDA version
+Python version
+PyTorch version
+Lightning version
+Training batch size
+Evaluation batch size
+Random seed
+Validation split seed
+Checkpoint selection metric
+Training time
+```
 
-`config.yaml` 包含模型、优化器、数据路径、训练超参等。
+## Checkpoints and Logs
 
-常见字段（示例说明）：
-- `trainer`：训练参数。
-- `model`：模型参数。
-- `data`：数据参数。
+Pretrained checkpoints should be provided through the GitHub release or Zenodo archive. A reproducible release should include:
 
-在开始训练前请打开并检查 `config.yaml`，确保 `zipfile_path` 与本地数据一致。
+```text
+checkpoint.ckpt
+config.yaml
+hparams.yaml
+training log
+evaluation outputs
+result.zip
+2014.txt / 2016.txt / 2019.txt
+```
 
-## 检查点与日志
+Large checkpoints should be stored in the release assets or Zenodo rather than committed directly to the Git repository.
 
-- 默认使用 PyTorch Lightning 保存训练日志与 checkpoint，目录为 `lightning_logs/`。
-- checkpoint 文件通常包含模型权重与训练状态，可用于恢复训练或推理。
+## Citation
 
-恢复训练示例：在 `config.yaml` 或 `train.py` 中指定 `resume_from_checkpoint`（或传入命令行参数）为相应的 checkpoint 路径。
+If you use this repository, please cite the manuscript and the archived Zenodo release:
 
+```bibtex
+@article{datformer,
+  title   = {DAT-Former: <replace with final title>},
+  author  = {<replace with authors>},
+  journal = {<replace with journal>},
+  year    = {2026}
+}
+```
 
-## 评估指标
+## License
 
-- scripts/test/test.py：评估脚本，支持多种数据集与评估指标。
-- eval_all.sh：评估脚本，用于计算 CROHME 2014/2016/2019 的指标。
-- 评估代码可计算ExpRate\≤1\≤2\≤3Error，并在`lightning_logs/version_` 下保存结果。
+A clear open-source license should be included in the repository before public release. The recommended option is to add a `LICENSE` file at the repository root.
+
+The CROHME datasets may have separate redistribution restrictions. If redistribution is not explicitly permitted by the dataset license, do not redistribute CROHME data through this repository. Instead, provide official download instructions and checksums.
+
